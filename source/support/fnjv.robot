@@ -1,11 +1,14 @@
 *** Settings ***
-Library    SeleniumLibrary
+Library    SeleniumLibrary    timeout=0:01:00
 Library    Collections
 Library    JSONLibrary
 Library    OperatingSystem
 Library    Process
 Library    String
 Variables    locators/fnjv.py
+
+*** Variables ***
+${animalsJsonFile}     animals.json
 
 *** Keywords ***
 Navigate to FNJV Site
@@ -76,21 +79,53 @@ Click On Next Page Button
     Click Element    ${nextPage}
     Sleep    2
 
+Set Animal Exists
+    [Arguments]    ${value}
+    ${animalExists}    Set Variable    ${value}
+    Set Test Variable    ${animalExists}
+
+Set Animal Failed
+    [Arguments]    ${value}
+    ${animalfailed}    Set Variable    ${value}
+    Set Test Variable    ${animalfailed}
+
 Download All Records in Search Results
+    ${animalData}    Load Previous Run
     ${numberOfPages}    Get Number Of Pages in Search Results
-    ${animals}    Create List
+    ${animals}    Set Variable    ${animalData["animals"]}
+    Set Animal Exists    ${false}
+    Set Animal Failed    ${false}
     FOR    ${page}    IN RANGE    ${numberOfPages}
+        Run Keyword If    ${page}<${animalData["page"]} and ${page}<${numberOfPages}-1    Click On Next Page Button
+        Continue For Loop If    ${page}<${animalData["page"]}
+        ${verifyAnimal}     Run Keyword If    ${page}==${animalData["page"]}    Set Variable    ${true}    ELSE    Set Variable    ${false}
+        Set Test Variable    ${verifyAnimal}
         ${pageAnimals}    Download Animals in Page
         ${animals}    Combine Lists    ${animals}    ${pageAnimals}
         Run Keyword If    ${page}<${numberOfPages}-1    Click On Next Page Button
+        Set To Dictionary    ${animalData}     animals=${animals}     page=${page}
+        Create Animals Json    ${animalData}
+        Run Keyword If    ${animalfailed}    Fail
     END
-    ${animalData}    Create Dictionary    animals=${animals}
-    Create Animals Json    ${animalData}
+
+Load Previous Run
+    ${animals}    Create List
+    ${animalData}     Create Dictionary    page=0    animals=${animals}
+    Set Test Variable    ${animalData}
+    ${animalsJsonNotExist}     Run Keyword And Return Status     File Should Not Exist     ${animalsJsonFile}
+    Return From Keyword If    ${animalsJsonNotExist}    ${animalData}
+    ${animalData}    Load JSON From File    ${animalsJsonFile}
+    Set Test Variable    ${animalData}
+    [Return]    ${animalData}
 
 Create Animals Json
     [Arguments]     ${animalsData}
-    ${jsonString}     Convert JSON To String    ${animalsData}
-    Create File    ${OUTPUT_DIR}/animals.json    ${jsonString}    SYSTEM
+    Create Json File    ${animalsData}     ${animalsJsonFile}
+
+Create Json File
+    [Arguments]    ${data}    ${filename}
+    ${jsonString}     Convert JSON To String    ${data}
+    Create File    ${OUTPUT_DIR}/${filename}    ${jsonString}    SYSTEM
 
 Get Animals Count
     ${animals}    Get Element Count    ${tableRow}
@@ -100,10 +135,14 @@ Download Animals in Page
     ${animals}    Get Animals Count
     ${animalList}    Create List
     FOR    ${index}    IN RANGE    ${animals}
+        Set Animal Exists     ${false}
+        Set Test Variable    ${animalExists}
         Set Focus To Element    ${tableRow}:nth-child(${index+1})
         ${hasNotSound}    Run Keyword and Return Status     Page Should Not Contain Element    ${tableRow}:nth-child(${index+1})${audioButton}
         Continue For Loop If    ${hasNotSound}
         ${animalData}    Download Animal Data    ${tableRow}:nth-child(${index+1})
+        Return From Keyword If    ${animalfailed}
+        Continue For Loop If    ${verifyAnimal} and ${animalExists}
         Append To List    ${animalList}    ${animalData}
     END
     [Return]   ${animalList}
@@ -112,14 +151,36 @@ Download Animal Data
     [Arguments]     ${locator}
     Set Focus To Element    ${locator} td:nth-child(1)
     ${number}    Get Text    ${locator} td:nth-child(1)
+    Verify If Record Exists    ${number}
+    Return From Keyword If    ${animalExists}
     ${class}    Get Text    ${locator} td:nth-child(2)
     ${family}    Get Text    ${locator} td:nth-child(3)
     ${gender}    Get Text    ${locator} td:nth-child(4)
     ${species}    Get Text    ${locator} td:nth-child(5)
     ${popularName}    Get Text    ${locator} td:nth-child(6)
     ${individualData}    Get Individual Data    ${locator}
+    Return From Keyword If    ${animalfailed}     
     ${animal}    Create Dictionary    number=${number}    class=${class}    family=${family}    gender=${gender}    species=${species}    popularName=${popularName}    individualData=${individualData}
-    [Return]    ${animal}
+    ${filename}    Write Animal Data File     ${animal}
+    ${animalFile}    Create Dictionary    number=${number}     filename=${filename}
+    [Return]    ${animalFile}
+
+Verify If Record Exists
+    [Arguments]    ${number}
+    Return From Keyword If    not ${verifyAnimal}
+    ${doesNotHaveRecords}    Run Keyword And Return Status    Dictionary Should Not Contain Key    ${animalData}    animals
+    Return From Keyword If    ${doesNotHaveRecords}
+    FOR     ${record}    IN    @{animalData["animals"]}
+        ${isEqual}    Run Keyword And Return Status    Should Be Equal As Strings    ${record["number"]}    ${number}
+        ${animalExists}    Run Keyword If    ${isEqual}    Set Variable    ${true}    ELSE    Set Variable    ${false}
+        Set Animal Exists    ${animalExists}
+        Return From Keyword If    ${animalExists}
+    END
+
+Write Animal Data File
+    [Arguments]    ${animal}
+    Create Json File    ${animal}    ${animal["number"]}.json
+    [Return]    ${animal["number"]}.json
 
 Click on Individual Data
     [Arguments]    ${locator}
@@ -131,7 +192,10 @@ Individual Data Popup Must Be Opened
 
 Close Individual Data Popup
     Wait Until Element Is Visible    ${individualDataPopupCloseButton}
-    Click Element    ${individualDataPopupCloseButton}
+    ${passed}    Run Keyword And Return Status    Click Element    ${individualDataPopupCloseButton}
+    ${animalfailed}    Run Keyword And Return Status     Should Not Be True    ${passed}
+    Set Animal Failed     ${animalfailed}
+    Return From Keyword If    ${animalfailed}
     Wait Until Element Is Not Visible    ${individualDataPopup}
 
 Get Individual Data
@@ -169,9 +233,13 @@ Get Popup Info
 
 Download From URL
     [Arguments]     ${url}
-    Run Process    wget     ${url}
     ${urlList}    Split String    ${url}    separator=/
     ${filename}    Set Variable    ${urlList[-1]}
+    ${fileExists}    Run Keyword and Return Status    File Should Exist    ${OUTPUT_DIR}/${filename}
+    Run Keyword If   ${fileExists}    Remove File    ${OUTPUT_DIR}/${filename}
+    Wait Until Removed    ${OUTPUT_DIR}/${filename}
+    Run Process    wget     ${url}
+    Wait Until Created   ${OUTPUT_DIR}/${filename}
     [Return]    ${OUTPUT_DIR}/${filename}
 
 Get Individual Sound Specter
