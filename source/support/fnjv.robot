@@ -137,8 +137,9 @@ Download Animals in Page
     FOR    ${index}    IN RANGE    ${animals}
         Set Animal Exists     ${false}
         Set Test Variable    ${animalExists}
+        Sleep    1
         Set Focus To Element    ${tableRow}:nth-child(${index+1})
-        ${hasNotSound}    Run Keyword and Return Status     Page Should Not Contain Element    ${tableRow}:nth-child(${index+1})${audioButton}
+        ${hasNotSound}    Run Keyword and Return Status     Page Should Contain Element    ${tableRow}:nth-child(${index+1})${noAudio}
         Continue For Loop If    ${hasNotSound}
         ${animalData}    Download Animal Data    ${tableRow}:nth-child(${index+1})
         Return From Keyword If    ${animalfailed}
@@ -151,8 +152,6 @@ Download Animal Data
     [Arguments]     ${locator}
     Set Focus To Element    ${locator} td:nth-child(1)
     ${number}    Get Text    ${locator} td:nth-child(1)
-    Verify If Record Exists    ${number}
-    Return From Keyword If    ${animalExists}
     ${class}    Get Text    ${locator} td:nth-child(2)
     ${family}    Get Text    ${locator} td:nth-child(3)
     ${gender}    Get Text    ${locator} td:nth-child(4)

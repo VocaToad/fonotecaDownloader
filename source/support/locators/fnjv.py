@@ -40,6 +40,8 @@ tableRow = "css:div#FnjvAudioCollection div.jtable-main-container table.jtable t
 
 audioButton = " td input[title='Tocar Áudio']"
 
+noAudio = " td input[src='img/blank.png']"
+
 individualDataPopup = "css:body.modal-open div#FnjvRecordModal.modal.fade.in"
 
 individualDataPopupCloseButton = individualDataPopup+" div.modal-dialog div.modal-content div.modal-header button.close"
